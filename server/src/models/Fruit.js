@@ -15,4 +15,4 @@ Fruit.init({
   carbohydrates: { type: DataTypes.FLOAT },
   protein: { type: DataTypes.FLOAT },
   imageUrl: { type: DataTypes.STRING }
-}, { sequelize, modelName: 'Fruit' });
+}, { sequelize, modelName: 'Fruit', tableName: 'fruits' });
