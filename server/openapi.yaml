@@ -1,0 +1,143 @@
+openapi: 3.0.3
+info:
+  title: FROOTS API
+  version: 1.0.0
+  description: API for fruits, favorites, auth, profile, and AI suggestions
+servers:
+  - url: http://localhost:4000
+paths:
+  /health:
+    get:
+      summary: Healthcheck
+      responses:
+        '200': { description: OK }
+  /auth/google:
+    post:
+      summary: Google login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id_token: { type: string }
+              required: [id_token]
+      responses:
+        '200': { description: JWT issued }
+  /fruits:
+    get:
+      summary: List fruits
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string }
+        - in: query
+          name: order
+          schema: { type: string, enum: [ASC, DESC] }
+        - in: query
+          name: family
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: offset
+          schema: { type: integer }
+      responses:
+        '200': { description: Fruit list }
+  /fruits/{id}:
+    get:
+      summary: Get fruit by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Fruit }
+        '404': { description: Not found }
+  /favorites:
+    get:
+      summary: List favorites
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Favorites list } }
+    post:
+      summary: Add favorite
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fruitId: { type: integer }
+                note: { type: string }
+              required: [fruitId]
+      responses: { '201': { description: Created } }
+  /favorites/{id}:
+    put:
+      summary: Update favorite note
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses: { '200': { description: Updated } }
+    delete:
+      summary: Delete favorite
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses: { '204': { description: Deleted } }
+  /profile:
+    get:
+      summary: Get profile
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Profile } }
+    put:
+      summary: Update profile
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                nickName: { type: string }
+                dateOfBirth: { type: string, format: date }
+                gender: { type: string, enum: [male, female, other] }
+      responses: { '200': { description: Updated profile } }
+  /ai/suggestions:
+    get:
+      summary: AI fruit suggestions
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer }
+      responses:
+        '200': { description: Suggestions }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
