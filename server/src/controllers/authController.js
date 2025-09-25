@@ -80,3 +80,23 @@ export async function exchangeGoogleCode(req,res,next){
     next(e);
   }
 }
+
+export async function verifyToken(req, res, next) {
+  try {
+    // The auth middleware should have already verified the token and set req.user
+    if (!req.user) {
+      return res.status(401).json({ message: 'No user found' });
+    }
+    res.json({ 
+      valid: true, 
+      user: { 
+        id: req.user.id, 
+        email: req.user.email, 
+        fullName: req.user.fullName, 
+        nickName: req.user.nickName 
+      } 
+    });
+  } catch (e) { 
+    next(e); 
+  }
+}

@@ -13,5 +13,6 @@ Fruit.init({
   fat: { type: DataTypes.FLOAT },
   sugar: { type: DataTypes.FLOAT },
   carbohydrates: { type: DataTypes.FLOAT },
-  protein: { type: DataTypes.FLOAT }
+  protein: { type: DataTypes.FLOAT },
+  imageUrl: { type: DataTypes.STRING }
 }, { sequelize, modelName: 'Fruit' });

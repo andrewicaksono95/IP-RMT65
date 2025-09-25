@@ -1,210 +1,332 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { fetchFruits, reset } from '../slices/fruitSlice.js';
-import { addFavorite } from '../slices/favoriteSlice.js';
-import { fetchSuggestions } from '../slices/aiSlice.js';
+import React, { useEffect, useState, useMemo } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { fetchFruits } from "../slices/fruitSlice";
+import { fetchFavorites } from "../slices/favoriteSlice";
+import { useNavigate } from "react-router-dom";
+import { FruitLoader, LoaderStyles } from "../components/Loaders";
 
-export default function Home(){
+export default function Home() {
   const dispatch = useDispatch();
-  const { rows, count } = useSelector(s=> s.fruits);
-  const user = useSelector(s=> s.auth.user);
-  const suggestions = useSelector(s=> s.ai.suggestions);
-  const [query,setQuery] = useState('');
-  const [sort,setSort] = useState('name');
-  const [offset,setOffset] = useState(0);
-  const limit = 20;
-  const triggerRef = useRef();
+  const navigate = useNavigate();
+  const { rows, count, status } = useSelector(state => state.fruits);
+  const { user } = useSelector(state => state.auth);
+  const { items: favorites } = useSelector(state => state.favorites);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState("asc");
+  const [offset, setOffset] = useState(0);
+  const limit = 12;
+  const [hasMore, setHasMore] = useState(true);
+  const [allDataLoaded, setAllDataLoaded] = useState(false);
+  const triggerRef = React.useRef(null);
 
-  useEffect(()=> { dispatch(fetchSuggestions()); }, [dispatch]);
-  useEffect(()=> { load(true); }, [query, sort]);
-  useEffect(()=> { const ob = new IntersectionObserver(entries=> { if(entries[0].isIntersecting && rows.length < count){ load(false); } }); if(triggerRef.current) ob.observe(triggerRef.current); return ()=> ob.disconnect(); }, [rows,count]);
-  function load(resetFirst){
-    if(resetFirst){ setOffset(0); dispatch(reset()); }
-    dispatch(fetchFruits({ search: query, sort, offset: resetFirst?0:offset, limit }));
-    if(!resetFirst) setOffset(o=> o+limit);
+  // Derive loading and error from status
+  const loading = status === 'loading';
+  const error = status === 'failed' ? 'Failed to load fruits' : null;
+
+  // Helper function to check if fruit is in favorites
+  const isFruitInFavorites = (fruitId) => {
+    return favorites.some(fav => fav.Fruit?.id === fruitId);
+  };
+
+  // Handle sort change - fetch all data when sorting changes
+  const handleSortChange = (newSortBy) => {
+    setSortBy(newSortBy);
+    if (!allDataLoaded) {
+      setOffset(0);
+      setHasMore(false);
+      setAllDataLoaded(true);
+      dispatch({ type: 'fruits/reset' });
+      dispatch(fetchFruits({ search: searchTerm, offset: 0, limit: 1000 }));
+    }
+  };
+
+  // Memoized sorted and filtered fruits
+  const sortedFruits = useMemo(() => {
+    if (!rows || rows.length === 0) return [];
+    
+    // Filter by search term first
+    let filtered = rows;
+    if (searchTerm.trim()) {
+      filtered = rows.filter(fruit => 
+        fruit.name.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    // Then sort alphabetically
+    return [...filtered].sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      if (sortBy === "desc") {
+        return nameB.localeCompare(nameA);
+      }
+      return nameA.localeCompare(nameB);
+    });
+  }, [rows, sortBy, searchTerm]);
+
+  // Fetch fruits with pagination - remove searchTerm dependency to prevent API calls on every keystroke
+  useEffect(() => {
+    setOffset(0);
+    setHasMore(true);
+    setAllDataLoaded(false);
+    dispatch({ type: 'fruits/reset' });
+    dispatch(fetchFruits({ offset: 0, limit }));
+  }, [dispatch]);
+
+  // Fetch favorites when user is available
+  useEffect(() => {
+    if (user) {
+      dispatch(fetchFavorites());
+    }
+  }, [dispatch, user]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!hasMore || loading || allDataLoaded) return;
+    
+    const observer = new window.IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && rows.length < count) {
+        const nextOffset = rows.length;
+        dispatch(fetchFruits({ offset: nextOffset, limit }));
+        setOffset(nextOffset);
+        if (nextOffset + limit >= count) setHasMore(false);
+      }
+    }, { threshold: 1 });
+    
+    if (triggerRef.current) observer.observe(triggerRef.current);
+    
+    return () => {
+      if (triggerRef.current) observer.unobserve(triggerRef.current);
+    };
+  }, [triggerRef, hasMore, loading, rows.length, count, dispatch, allDataLoaded]);
+
+  if (loading && rows.length === 0) {
+    return (
+      <div className="min-vh-100 d-flex align-items-center justify-content-center" style={{ background: 'linear-gradient(135deg, #fdf2f8, #fff, #f3e8ff)' }}>
+        <FruitLoader message="Loading delicious fruits..." size="large" />
+      </div>
+    );
   }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-purple-50 p-4">
-      {/* Search and Filter Section */}
-      <div className="max-w-7xl mx-auto mb-8">
-        <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-lg border border-pink-200 p-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
-            <div className="flex-1">
-              <input 
-                className="w-full px-6 py-4 border-2 border-pink-300 rounded-2xl focus:ring-4 focus:ring-pink-200 focus:border-pink-500 transition-all duration-300 text-lg text-gray-800 placeholder-pink-400 bg-white shadow-sm" 
-                placeholder="🔍 Search your favorite fruits..." 
-                value={query} 
-                onChange={e => setQuery(e.target.value)}
+    <>
+      <LoaderStyles />
+    <div className="min-vh-100" style={{ background: 'linear-gradient(135deg, #fdf2f8, #fff, #f3e8ff)', padding: '2rem' }}>
+      <div className="container-fluid mb-5" style={{ maxWidth: '1200px' }}>
+        <div className="row g-3 justify-content-center">
+          <div className="col-md-6">
+            <div className="position-relative">
+              <input
+                type="text"
+                className="form-control form-control-lg shadow-sm"
+                placeholder="🔍 Search for your favorite fruit..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  borderRadius: '25px',
+                  border: '2px solid #f3e8ff',
+                  paddingLeft: '20px',
+                  fontSize: '1.1rem',
+                  transition: 'all 0.3s ease'
+                }}
               />
             </div>
-            <div className="flex-shrink-0">
-              <select 
-                className="px-6 py-4 border-2 border-pink-300 rounded-2xl focus:ring-4 focus:ring-pink-200 focus:border-pink-500 transition-all duration-300 bg-white text-lg text-gray-800 shadow-sm" 
-                value={sort} 
-                onChange={e => setSort(e.target.value)}
-              >
-                <option value="name">✨ Sort by Name</option>
-                <option value="calories">🔥 Sort by Calories</option>
-                <option value="sugar">🍯 Sort by Sugar</option>
-              </select>
-            </div>
+          </div>
+          <div className="col-md-4">
+            <select
+              className="form-select form-select-lg shadow-sm"
+              value={sortBy}
+              onChange={(e) => handleSortChange(e.target.value)}
+              style={{
+                borderRadius: '25px',
+                border: '2px solid #f3e8ff',
+                fontSize: '1.1rem',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <option value="asc">🍎 A-Z (Alphabetical)</option>
+              <option value="desc">🍊 Z-A (Reverse)</option>
+            </select>
           </div>
         </div>
       </div>
 
-      {/* Beautiful Fruit Cards Grid */}
-      <div className="max-w-7xl mx-auto">
-        <div 
-          className="grid gap-6"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            maxWidth: '100%'
-          }}
-        >
-          {rows.map(f => (
-            <div 
-              key={f.id} 
-              className="group relative overflow-hidden"
-              style={{
-                background: 'linear-gradient(145deg, #ffffff, #fdf2f8)',
-                borderRadius: '24px',
-                border: '2px solid #fce7f3',
-                padding: '24px',
-                boxShadow: '0 10px 25px rgba(236, 72, 153, 0.1)',
-                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                minHeight: '380px',
-                maxHeight: '380px',
-                display: 'flex',
-                flexDirection: 'column'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-8px) scale(1.02)';
-                e.currentTarget.style.boxShadow = '0 20px 40px rgba(236, 72, 153, 0.2)';
-                e.currentTarget.style.borderColor = '#f472b6';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                e.currentTarget.style.boxShadow = '0 10px 25px rgba(236, 72, 153, 0.1)';
-                e.currentTarget.style.borderColor = '#fce7f3';
-              }}
-            >
-              {/* Decorative gradient */}
+      <div className="container-fluid" style={{ maxWidth: '1200px' }}>
+        <div className="row g-4">
+          {sortedFruits.map(f => (
+            <div key={f.id} className="col-lg-3 col-md-4 col-sm-6">
               <div 
-                className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-pink-400 via-purple-400 to-pink-500"
-                style={{ borderRadius: '24px 24px 0 0' }}
-              />
-              
-              {/* Fruit name */}
-              <div style={{ minHeight: '60px', display: 'flex', alignItems: 'center' }}>
-                <h3 
-                  className="text-2xl font-bold text-gray-800 group-hover:text-pink-600 transition-colors duration-300"
+                className="card h-100 border-0 shadow-lg position-relative d-flex flex-column card-hover animate-fade-in-scale"
+                style={{
+                  background: 'linear-gradient(145deg, #ffffff, #fdf2f8)',
+                  borderRadius: '24px',
+                  border: '2px solid #fce7f3',
+                  padding: '24px',
+                  minHeight: '450px',
+                  cursor: 'pointer',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}
+                onClick={() => navigate(`/fruit/${f.id}`)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-8px) scale(1.02)';
+                  e.currentTarget.style.boxShadow = '0 20px 40px rgba(236, 72, 153, 0.2)';
+                  e.currentTarget.style.borderColor = '#f472b6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                  e.currentTarget.style.boxShadow = '0 10px 25px rgba(236, 72, 153, 0.1)';
+                  e.currentTarget.style.borderColor = '#fce7f3';
+                }}
+              >
+                <div 
+                  className="position-absolute top-0 start-0 end-0"
                   style={{ 
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                    letterSpacing: '-0.025em',
-                    lineHeight: '1.2'
+                    height: '6px',
+                    background: 'linear-gradient(90deg, #ec4899, #be185d, #ec4899)',
+                    borderRadius: '22px 22px 0 0',
+                    margin: '2px 2px 0 2px'
                   }}
-                >
-                  🍎 {f.name}
-                </h3>
-              </div>
-              
-              {/* Nutrition badges - Uniform 3x1 grid */}
-              <div className="grid grid-cols-1 gap-3 mb-6 flex-1">
-                <span 
-                  className="flex items-center justify-center px-4 py-3 rounded-full text-sm font-bold shadow-sm text-center"
-                  style={{
-                    background: 'linear-gradient(135deg, #fef3c7, #fbbf24)',
-                    color: '#92400e',
-                    border: '1px solid #fcd34d',
-                    minHeight: '40px'
-                  }}
-                >
-                  🔥 {f.calories || '0'} calories
-                </span>
-                <span 
-                  className="flex items-center justify-center px-4 py-3 rounded-full text-sm font-bold shadow-sm text-center"
-                  style={{
-                    background: 'linear-gradient(135deg, #ede9fe, #a78bfa)',
-                    color: '#5b21b6',
-                    border: '1px solid #c4b5fd',
-                    minHeight: '40px'
-                  }}
-                >
-                  🍯 {f.sugar || '0'}g sugar
-                </span>
-                <span 
-                  className="flex items-center justify-center px-4 py-3 rounded-full text-sm font-bold shadow-sm text-center"
-                  style={{
-                    background: 'linear-gradient(135deg, #d1fae5, #34d399)',
-                    color: '#065f46',
-                    border: '1px solid #6ee7b7',
-                    minHeight: '40px'
-                  }}
-                >
-                  💪 {f.protein || '0'}g protein
-                </span>
-              </div>
-              
-              {/* Favorite button */}
-              <div style={{ minHeight: '60px', display: 'flex', alignItems: 'end' }}>
-                {user && (
-                  <button 
-                    className="w-full font-bold text-lg rounded-2xl transition-all duration-300 shadow-lg transform active:scale-95"
+                />
+                
+                {/* Favorites Badge */}
+                {user && isFruitInFavorites(f.id) && (
+                  <div 
+                    className="position-absolute d-flex align-items-center justify-content-center"
                     style={{
-                      background: 'linear-gradient(135deg, #ec4899, #be185d)',
-                      color: 'white',
-                      border: 'none',
-                      padding: '16px 24px',
-                      minHeight: '56px'
+                      top: '12px',
+                      right: '8px',
+                      width: '36px',
+                      height: '36px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      borderRadius: '50%',
+                      boxShadow: '0 4px 8px rgba(16, 185, 129, 0.3)',
+                      zIndex: 10
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #be185d, #9d174d)';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 10px 20px rgba(236, 72, 153, 0.4)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #ec4899, #be185d)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 4px 14px rgba(236, 72, 153, 0.25)';
-                    }}
-                    onClick={() => dispatch(addFavorite({ fruitId: f.id }))}
                   >
-                    💕 Add to Favorites
-                  </button>
+                    <span style={{ fontSize: '1.1rem', color: 'white' }}>❤️</span>
+                  </div>
                 )}
+                
+                <div className="d-flex justify-content-center mb-4 flex-fill">
+                  <div 
+                    className="d-flex align-items-center justify-content-center rounded-circle shadow-lg"
+                    style={{
+                      width: '192px',
+                      height: '192px',
+                      background: 'linear-gradient(135deg, #fdf2f8, #ffffff)',
+                      overflow: 'hidden',
+                      transition: 'transform 0.3s ease',
+                      position: 'relative'
+                    }}
+                  >
+                    {f.imageUrl ? (
+                      <img
+                        src={f.imageUrl}
+                        alt={f.name}
+                        style={{ 
+                          width: f.imageUrl.endsWith('.svg') ? '160px' : '180px',
+                          height: f.imageUrl.endsWith('.svg') ? '160px' : '180px',
+                          objectFit: 'contain',
+                          filter: f.imageUrl.endsWith('.svg') ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' : 'none',
+                          transition: 'transform 0.3s ease',
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)'
+                        }}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.style.display = 'none';
+                          const fallbackDiv = e.target.parentElement.querySelector('.fallback-emoji');
+                          if (fallbackDiv) {
+                            fallbackDiv.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="w-100 h-100 d-flex align-items-center justify-content-center position-absolute fallback-emoji"
+                        style={{ 
+                          fontSize: '4rem',
+                          top: 0,
+                          left: 0
+                        }}
+                      >
+                        🍎
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <h3 
+                    className="text-center fw-bold mb-0"
+                    style={{ 
+                      fontSize: '1.5rem',
+                      color: '#374151',
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                      letterSpacing: '-0.025em',
+                      lineHeight: '1.2',
+                      transition: 'color 0.3s ease'
+                    }}
+                  >
+                    {f.name}
+                  </h3>
+                </div>
+
+                <div className="d-flex flex-column gap-1 mb-4">
+                  {f.order && (
+                    <span 
+                      className="d-flex align-items-center justify-content-center px-2 py-1 rounded-pill text-center small fw-medium shadow-sm"
+                      style={{
+                        background: 'linear-gradient(135deg, #dbeafe, #3b82f6)',
+                        color: '#1e40af',
+                        border: '0.5px solid #93c5fd',
+                        minHeight: '24px',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      🗂️ Order: {f.order}
+                    </span>
+                  )}
+                  {f.family && (
+                    <span 
+                      className="d-flex align-items-center justify-content-center px-2 py-1 rounded-pill text-center small fw-medium shadow-sm"
+                      style={{
+                        background: 'linear-gradient(135deg, #d1fae5, #10b981)',
+                        color: '#065f46',
+                        border: '0.5px solid #6ee7b7',
+                        minHeight: '24px',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      🌱 Family: {f.family}
+                    </span>
+                  )}
+                  {f.genus && (
+                    <span 
+                      className="d-flex align-items-center justify-content-center px-2 py-1 rounded-pill text-center small fw-medium shadow-sm"
+                      style={{
+                        background: 'linear-gradient(135deg, #ede9fe, #8b5cf6)',
+                        color: '#5b21b6',
+                        border: '0.5px solid #c4b5fd',
+                        minHeight: '24px',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      🧬 Genus: {f.genus}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           ))}
         </div>
-      </div>
-      
-      <div ref={triggerRef} className="h-8" />
-      
-      {/* AI Suggestions Section */}
-      {suggestions.length > 0 && (
-        <div className="max-w-7xl mx-auto mt-12">
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-lg border border-pink-200 p-8">
-            <h2 className="text-3xl font-bold text-gray-800 mb-6 flex items-center gap-3">
-              🤖 AI Fruit Recommendations
-            </h2>
-            
-            <div className="grid gap-4">
-              {suggestions.map(s => (
-                <div key={s.id} className="flex items-start gap-4 p-4 rounded-2xl hover:bg-pink-50 transition-colors duration-200">
-                  <span className="text-2xl">✨</span>
-                  <div className="flex-1">
-                    <span className="font-bold text-lg text-gray-800">{s.name}</span>
-                    {s.explanation && (
-                      <p className="text-gray-600 mt-2">{s.explanation}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        
+        <div ref={triggerRef} className="text-center mt-5 text-muted" style={{ minHeight: '32px' }}>
+          {rows.length < count ? `Showing ${rows.length} of ${count} fruits` : `All ${count} fruits loaded`}
         </div>
-      )}
+      </div>
     </div>
+    </>
   );
 }
